@@ -1,0 +1,1520 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Engine of Exile — Why PoE Melts Your CPU</title>
+  <meta name="description"
+    content="An interactive deep-dive into why Path of Exile 1 and 2 push CPUs to 100%. Visualize combat math, pathfinding, and server reconciliation in real time." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/fontsource/css/cinzel@latest/index.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/fontsource/css/cinzel-decorative@latest/index.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/fontsource/css/inter@latest/index.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/fontsource/css/jetbrains-mono@latest/index.css">
+  <style>
+    :root {
+      --bg: #0a0806;
+      --bg-2: #14110d;
+      --gold: #c9a961;
+      --gold-bright: #e8c878;
+      --blood: #8b1818;
+      --blood-bright: #c42b2b;
+      --parchment: #d4c4a0;
+      --ink: #2a231c;
+    }
+
+    html,
+    body {
+      background: var(--bg);
+      color: var(--parchment);
+      font-family: 'Inter', sans-serif;
+    }
+
+    .font-display {
+      font-family: 'Cinzel Decorative', 'Cinzel', serif;
+      letter-spacing: 0.04em;
+    }
+
+    .font-serif {
+      font-family: 'Cinzel', serif;
+    }
+
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .text-gold {
+      color: var(--gold);
+    }
+
+    .text-gold-bright {
+      color: var(--gold-bright);
+    }
+
+    .text-blood {
+      color: var(--blood-bright);
+    }
+
+    .bg-ink {
+      background: var(--ink);
+    }
+
+    .border-gold {
+      border-color: var(--gold);
+    }
+
+    /* Ornate border */
+    .ornate {
+      position: relative;
+      border: 1px solid rgba(201, 169, 97, 0.3);
+      background: linear-gradient(180deg, rgba(20, 17, 13, 0.9), rgba(10, 8, 6, 0.95));
+    }
+
+    .ornate::before,
+    .ornate::after {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border: 1px solid var(--gold);
+    }
+
+    .ornate::before {
+      top: -1px;
+      left: -1px;
+      border-right: none;
+      border-bottom: none;
+    }
+
+    .ornate::after {
+      bottom: -1px;
+      right: -1px;
+      border-left: none;
+      border-top: none;
+    }
+
+    /* Hero background */
+    .hero-bg {
+      background-image:
+        radial-gradient(ellipse at 50% 30%, rgba(139, 24, 24, 0.25), transparent 60%),
+        radial-gradient(ellipse at 80% 80%, rgba(201, 169, 97, 0.15), transparent 50%),
+        url('https://image.pollinations.ai/prompt/dark%20fantasy%20gothic%20wasteland%20wraeclast%20path%20of%20exile%20atmosphere%20ruined%20cathedral%20silhouette%20blood%20moon%20fog%20embers%20floating%20cinematic%20volumetric%20lighting%20ultra%20wide?width=1920&height=1080&nologo=true&seed=7');
+      background-size: cover;
+      background-position: center;
+    }
+
+    .hero-overlay {
+      background: linear-gradient(180deg, rgba(10, 8, 6, 0.3) 0%, rgba(10, 8, 6, 0.6) 50%, rgba(10, 8, 6, 1) 100%);
+    }
+
+    /* Ember particles */
+    .ember {
+      position: absolute;
+      width: 3px;
+      height: 3px;
+      background: radial-gradient(circle, #ff9a3c, transparent);
+      border-radius: 50%;
+      pointer-events: none;
+      animation: float-up linear infinite;
+      filter: blur(0.5px);
+    }
+
+    @keyframes float-up {
+      0% {
+        transform: translateY(0) translateX(0);
+        opacity: 0;
+      }
+
+      10% {
+        opacity: 1;
+      }
+
+      90% {
+        opacity: 0.8;
+      }
+
+      100% {
+        transform: translateY(-100vh) translateX(40px);
+        opacity: 0;
+      }
+    }
+
+    /* Custom range slider */
+    input[type=range].juice-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 8px;
+      background: linear-gradient(90deg, #2a231c 0%, #8b1818 100%);
+      border: 1px solid rgba(201, 169, 97, 0.4);
+      border-radius: 2px;
+      outline: none;
+    }
+
+    input[type=range].juice-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 28px;
+      height: 28px;
+      background: radial-gradient(circle at 30% 30%, #e8c878, #8b6a2c);
+      border: 2px solid #c9a961;
+      border-radius: 50%;
+      cursor: grab;
+      box-shadow: 0 0 20px rgba(201, 169, 97, 0.6);
+    }
+
+    input[type=range].juice-slider::-moz-range-thumb {
+      width: 28px;
+      height: 28px;
+      background: radial-gradient(circle at 30% 30%, #e8c878, #8b6a2c);
+      border: 2px solid #c9a961;
+      border-radius: 50%;
+      cursor: grab;
+      box-shadow: 0 0 20px rgba(201, 169, 97, 0.6);
+    }
+
+    /* CPU Core */
+    .cpu-core {
+      position: relative;
+      overflow: hidden;
+      background: #1a1510;
+      border: 1px solid rgba(201, 169, 97, 0.3);
+      transition: all 0.3s ease;
+    }
+
+    .cpu-core-fill {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(0deg, #c42b2b 0%, #ff6b35 50%, #c9a961 100%);
+      transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 0 10px rgba(196, 43, 43, 0.5);
+    }
+
+    .cpu-core.choked {
+      animation: core-shake 0.3s infinite;
+      border-color: #c42b2b;
+    }
+
+    @keyframes core-shake {
+
+      0%,
+      100% {
+        transform: translateX(0);
+      }
+
+      25% {
+        transform: translateX(-1px);
+      }
+
+      75% {
+        transform: translateX(1px);
+      }
+    }
+
+    /* Damage pipeline nodes */
+    .pipe-node {
+      position: relative;
+      background: rgba(20, 17, 13, 0.95);
+      border: 1px solid rgba(201, 169, 97, 0.3);
+      transition: all 0.3s ease;
+    }
+
+    .pipe-node.active {
+      border-color: var(--gold-bright);
+      box-shadow: 0 0 30px rgba(232, 200, 120, 0.4), inset 0 0 20px rgba(201, 169, 97, 0.2);
+      transform: scale(1.05);
+    }
+
+    .pipe-node.active::after {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      border: 1px solid var(--gold-bright);
+      animation: pulse-ring 1s ease-out;
+    }
+
+    @keyframes pulse-ring {
+      0% {
+        transform: scale(1);
+        opacity: 1;
+      }
+
+      100% {
+        transform: scale(1.2);
+        opacity: 0;
+      }
+    }
+
+    /* Packet animation */
+    .packet {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      background: radial-gradient(circle, #ff9a3c, #c42b2b);
+      border-radius: 50%;
+      box-shadow: 0 0 20px #ff6b35, 0 0 40px #c42b2b;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #0a0806;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #2a231c;
+      border: 1px solid var(--gold);
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3a2f22;
+    }
+
+    /* Section divider */
+    .divider {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      margin: 4rem 0;
+    }
+
+    .divider::before,
+    .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    }
+
+    .divider-diamond {
+      width: 12px;
+      height: 12px;
+      background: var(--gold);
+      transform: rotate(45deg);
+      box-shadow: 0 0 10px rgba(201, 169, 97, 0.6);
+    }
+
+    /* Toggle switch */
+    .mode-toggle {
+      display: inline-flex;
+      background: #14110d;
+      border: 1px solid rgba(201, 169, 97, 0.4);
+      border-radius: 2px;
+      padding: 4px;
+      position: relative;
+    }
+
+    .mode-toggle button {
+      padding: 8px 24px;
+      font-family: 'Cinzel', serif;
+      font-size: 0.85rem;
+      letter-spacing: 0.1em;
+      color: var(--parchment);
+      transition: color 0.3s;
+      position: relative;
+      z-index: 2;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+    }
+
+    .mode-toggle button.active {
+      color: #0a0806;
+    }
+
+    .mode-toggle .slider-bg {
+      position: absolute;
+      top: 4px;
+      bottom: 4px;
+      width: calc(50% - 4px);
+      background: var(--gold);
+      transition: transform 0.3s ease;
+      z-index: 1;
+    }
+
+    /* Canvas */
+    canvas {
+      display: block;
+    }
+
+    /* Fade-in on scroll */
+    .reveal {
+      opacity: 0;
+      transform: translateY(30px);
+      transition: all 0.8s ease;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Pulse text */
+    .pulse-gold {
+      animation: pulse-gold 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse-gold {
+
+      0%,
+      100% {
+        text-shadow: 0 0 10px rgba(201, 169, 97, 0.4);
+      }
+
+      50% {
+        text-shadow: 0 0 25px rgba(232, 200, 120, 0.9);
+      }
+    }
+
+    /* Timeline */
+    .timeline-track {
+      position: relative;
+      height: 60px;
+      background: linear-gradient(90deg, #14110d, #1a1510);
+      border: 1px solid rgba(201, 169, 97, 0.3);
+      overflow: hidden;
+    }
+
+    .timeline-event {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      padding: 4px 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      border-radius: 2px;
+      white-space: nowrap;
+    }
+
+    .tick-marker {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: var(--gold);
+      box-shadow: 0 0 10px var(--gold);
+    }
+
+    /* Button */
+    .btn-ornate {
+      position: relative;
+      padding: 12px 28px;
+      background: linear-gradient(180deg, #2a231c, #14110d);
+      border: 1px solid var(--gold);
+      color: var(--gold-bright);
+      font-family: 'Cinzel', serif;
+      letter-spacing: 0.15em;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.3s;
+      overflow: hidden;
+    }
+
+    .btn-ornate:hover {
+      background: linear-gradient(180deg, #3a2f22, #1a1510);
+      box-shadow: 0 0 20px rgba(201, 169, 97, 0.4);
+    }
+
+    .btn-ornate:active {
+      transform: scale(0.98);
+    }
+
+    /* Stat label */
+    .stat-box {
+      background: rgba(20, 17, 13, 0.8);
+      border-left: 2px solid var(--gold);
+      padding: 8px 14px;
+    }
+
+    /* Hide nerd mode by default */
+    .nerd-only {
+      display: none;
+    }
+
+    body.nerd-mode .nerd-only {
+      display: block;
+    }
+
+    body.nerd-mode .tldr-only {
+      display: none;
+    }
+
+    /* Glitch for 100% */
+    .glitch {
+      animation: glitch 0.5s infinite;
+    }
+
+    @keyframes glitch {
+
+      0%,
+      100% {
+        text-shadow: 2px 0 #c42b2b, -2px 0 #3a8;
+      }
+
+      50% {
+        text-shadow: -2px 0 #c42b2b, 2px 0 #3a8;
+      }
+    }
+
+    /* Log console */
+    .log-window {
+      background: #0a0806;
+      border: 1px solid rgba(201, 169, 97, 0.3);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      height: 240px;
+      overflow-y: auto;
+      padding: 12px;
+    }
+
+    .log-line {
+      opacity: 0;
+      animation: log-in 0.3s forwards;
+    }
+
+    @keyframes log-in {
+      from {
+        opacity: 0;
+        transform: translateX(-10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+  </style>
+</head>
+
+<body class="antialiased">
+
+  <!-- ====== HERO ====== -->
+  <section class="hero-bg relative min-h-screen flex items-center justify-center overflow-hidden">
+    <div class="hero-overlay absolute inset-0"></div>
+    <div id="ember-container" class="absolute inset-0 pointer-events-none"></div>
+
+    <div class="relative z-10 text-center px-6 max-w-5xl mx-auto">
+      <p class="font-mono text-xs tracking-[0.4em] text-gold mb-6 opacity-80">A TECHNICAL DEEP-DIVE · v1.0</p>
+      <h1 class="font-display text-5xl md:text-7xl lg:text-8xl text-gold-bright leading-tight mb-6">
+        The Engine<br />of <span class="text-blood">Exile</span>
+      </h1>
+      <div class="divider" style="margin: 2rem auto; max-width: 400px;">
+        <div class="divider-diamond"></div>
+      </div>
+      <p class="font-serif text-lg md:text-xl text-parchment max-w-2xl mx-auto mb-8 leading-relaxed"
+        style="color: var(--parchment);">
+        Why does Path of Exile push your CPU to <span class="text-blood font-bold">100%</span> — in both the ancient PoE
+        1 engine and the brand new PoE 2?
+        <br /><span class="text-gold italic">Let's watch the math melt your processor in real time.</span>
+      </p>
+      <a href="#intro" class="btn-ornate inline-block">Descend Into The Engine</a>
+    </div>
+
+    <div class="absolute bottom-8 left-1/2 -translate-x-1/2 text-gold opacity-60 animate-bounce">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M12 5v14M19 12l-7 7-7-7" />
+      </svg>
+    </div>
+  </section>
+
+  <!-- ====== INTRO / MODE TOGGLE ====== -->
+  <section id="intro" class="relative py-24 px-6">
+    <div class="max-w-5xl mx-auto">
+      <div class="flex justify-center mb-10">
+        <div class="mode-toggle" id="mode-toggle">
+          <div class="slider-bg" id="toggle-slider"></div>
+          <button data-mode="tldr" class="active">TL;DR</button>
+          <button data-mode="nerd">Nerd Mode</button>
+        </div>
+      </div>
+
+      <div class="tldr-only ornate p-8 md:p-12 reveal">
+        <h2 class="font-display text-3xl md:text-4xl text-gold-bright mb-6 text-center">The Short Answer</h2>
+        <p class="font-serif text-xl leading-relaxed text-center mb-8" style="color: var(--parchment);">
+          Path of Exile isn't a game. It's a <span class="text-gold font-bold">real-time spreadsheet simulator</span>
+          disguised as an Action RPG.
+        </p>
+        <div class="grid md:grid-cols-3 gap-4 text-sm">
+          <div class="ornate p-4">
+            <div class="text-blood font-mono text-2xl mb-1">~500</div>
+            <div class="text-gold font-serif text-xs tracking-widest uppercase">Calculations per hit</div>
+          </div>
+          <div class="ornate p-4">
+            <div class="text-blood font-mono text-2xl mb-1">60×</div>
+            <div class="text-gold font-serif text-xs tracking-widest uppercase">Times per second</div>
+          </div>
+          <div class="ornate p-4">
+            <div class="text-blood font-mono text-2xl mb-1">×300</div>
+            <div class="text-gold font-serif text-xs tracking-widest uppercase">Enemies on screen</div>
+          </div>
+        </div>
+        <p class="font-serif text-center mt-8 italic opacity-70">Scroll down to see it happen.</p>
+      </div>
+
+      <div class="nerd-only ornate p-8 md:p-12 reveal">
+        <h2 class="font-display text-3xl md:text-4xl text-gold-bright mb-6 text-center">The Full Architecture</h2>
+        <p class="font-serif text-lg leading-relaxed mb-6" style="color: var(--parchment);">
+          Path of Exile is essentially a <span class="text-gold">massively multiplayer high-frequency trading
+            algorithm</span> with graphics. Every single frame, your CPU must resolve:
+        </p>
+        <ul class="space-y-3 font-serif">
+          <li class="flex gap-3"><span class="text-blood">◆</span><span>A nested modifier graph with thousands of
+              interdependent nodes (like Path of Building, but live)</span></li>
+          <li class="flex gap-3"><span class="text-blood">◆</span><span>Client-side prediction + server reconciliation
+              for every combat event</span></li>
+          <li class="flex gap-3"><span class="text-blood">◆</span><span>A* pathfinding for hundreds of AI agents on a
+              dynamic navmesh</span></li>
+          <li class="flex gap-3"><span class="text-blood">◆</span><span>10,000+ particle simulations and draw calls per
+              frame</span></li>
+          <li class="flex gap-3"><span class="text-blood">◆</span><span>Real-time audio mixing of hundreds of
+              simultaneous sound sources</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== SECTION 1: THE JUICE SLIDER ====== -->
+  <section class="relative py-20 px-6 bg-ink">
+    <div class="max-w-6xl mx-auto">
+      <div class="text-center mb-12 reveal">
+        <p class="font-mono text-xs tracking-[0.3em] text-gold mb-3">CHAPTER I</p>
+        <h2 class="font-display text-4xl md:text-5xl text-gold-bright mb-4">Turning Up The Juice</h2>
+        <p class="font-serif text-lg max-w-2xl mx-auto opacity-80">Drag the slider. Watch your CPU cores fight for their
+          lives.</p>
+      </div>
+
+      <div class="ornate p-6 md:p-10 reveal">
+        <div class="grid lg:grid-cols-2 gap-10">
+          <!-- Slider + Stats -->
+          <div>
+            <div class="flex items-baseline justify-between mb-3">
+              <label class="font-serif text-gold uppercase tracking-widest text-sm">Monster Pack Size</label>
+              <div class="font-mono text-3xl text-gold-bright" id="monster-count">50</div>
+            </div>
+            <input type="range" min="1" max="500" value="50" class="juice-slider" id="juice-slider" />
+            <div class="flex justify-between font-mono text-[10px] text-gold opacity-60 mt-1">
+              <span>1</span><span>100</span><span>250</span><span>500</span>
+            </div>
+
+            <div class="mt-8 space-y-3">
+              <div class="stat-box">
+                <div class="flex justify-between items-center">
+                  <span class="font-serif text-sm text-gold">Combat Math</span>
+                  <span class="font-mono text-sm" id="stat-combat">12%</span>
+                </div>
+                <div class="h-1 bg-[#1a1510] mt-2 overflow-hidden">
+                  <div class="h-full bg-gradient-to-r from-yellow-600 to-orange-500 transition-all duration-500"
+                    id="bar-combat" style="width:12%"></div>
+                </div>
+              </div>
+              <div class="stat-box">
+                <div class="flex justify-between items-center">
+                  <span class="font-serif text-sm text-gold">Pathfinding / AI</span>
+                  <span class="font-mono text-sm" id="stat-path">8%</span>
+                </div>
+                <div class="h-1 bg-[#1a1510] mt-2 overflow-hidden">
+                  <div class="h-full bg-gradient-to-r from-orange-500 to-red-600 transition-all duration-500"
+                    id="bar-path" style="width:8%"></div>
+                </div>
+              </div>
+              <div class="stat-box">
+                <div class="flex justify-between items-center">
+                  <span class="font-serif text-sm text-gold">Draw Calls / Particles</span>
+                  <span class="font-mono text-sm" id="stat-draw">18%</span>
+                </div>
+                <div class="h-1 bg-[#1a1510] mt-2 overflow-hidden">
+                  <div class="h-full bg-gradient-to-r from-red-600 to-red-800 transition-all duration-500" id="bar-draw"
+                    style="width:18%"></div>
+                </div>
+              </div>
+              <div class="stat-box">
+                <div class="flex justify-between items-center">
+                  <span class="font-serif text-sm text-gold">Audio Mixing</span>
+                  <span class="font-mono text-sm" id="stat-audio">6%</span>
+                </div>
+                <div class="h-1 bg-[#1a1510] mt-2 overflow-hidden">
+                  <div class="h-full bg-gradient-to-r from-purple-600 to-red-700 transition-all duration-500"
+                    id="bar-audio" style="width:6%"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-6 ornate p-4" style="border-color: rgba(196,43,43,0.5);">
+              <div class="flex items-center justify-between">
+                <span class="font-serif text-sm text-blood">TOTAL CPU LOAD</span>
+                <span class="font-mono text-2xl" id="total-load">44%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- CPU Cores Visualization -->
+          <div>
+            <div class="flex justify-between items-baseline mb-3">
+              <span class="font-serif text-gold uppercase tracking-widest text-sm">8-Core CPU</span>
+              <div class="flex gap-4 font-mono text-xs items-center">
+                <span class="text-gold">PoE 1</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" id="poe2-toggle" class="sr-only peer">
+                  <div
+                    class="w-10 h-5 bg-[#2a231c] border border-[#c9a961] peer-checked:bg-[#c9a961] transition-colors">
+                  </div>
+                  <div
+                    class="absolute top-[2px] left-[2px] w-4 h-4 bg-[#e8c878] peer-checked:translate-x-5 transition-transform">
+                  </div>
+                </label>
+                <span id="engine-label" class="opacity-60">Engine</span>
+              </div>
+            </div>
+            <div class="grid grid-cols-4 gap-2" id="cpu-cores">
+              <!-- Cores injected by JS -->
+            </div>
+            <p class="font-mono text-xs mt-4 text-center opacity-70" id="core-status">
+              Single thread handling most workload...
+            </p>
+
+            <div class="mt-6 p-4 bg-[#0a0806] border border-[rgba(201,169,97,0.3)]">
+              <p class="font-serif text-sm mb-2 text-gold">⚠ Bottleneck Report</p>
+              <p class="font-mono text-xs leading-relaxed" id="bottleneck-report" style="color: var(--parchment);">
+                System nominal. Combat math is the primary consumer. Other cores largely idle.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== SECTION 2: DAMAGE PIPELINE ====== -->
+  <section class="relative py-20 px-6">
+    <div class="max-w-7xl mx-auto">
+      <div class="text-center mb-12 reveal">
+        <p class="font-mono text-xs tracking-[0.3em] text-gold mb-3">CHAPTER II</p>
+        <h2 class="font-display text-4xl md:text-5xl text-gold-bright mb-4">A Single Fireball's Journey</h2>
+        <p class="font-serif text-lg max-w-2xl mx-auto opacity-80">Click cast. Watch the engine resolve hundreds of
+          micro-calculations before damage appears.</p>
+      </div>
+
+      <div class="ornate p-6 md:p-10 reveal">
+        <div class="flex justify-center mb-8">
+          <button class="btn-ornate" id="cast-btn">🔥 Cast Fireball</button>
+        </div>
+
+        <div class="relative" id="pipeline-container">
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3" id="pipeline-nodes">
+            <!-- Nodes injected -->
+          </div>
+        </div>
+
+        <div class="mt-10 grid md:grid-cols-3 gap-4">
+          <div class="ornate p-4 text-center">
+            <div class="font-mono text-3xl text-gold-bright" id="calc-counter">0</div>
+            <div class="font-serif text-xs tracking-widest text-gold uppercase mt-1">Calculations Per Hit</div>
+          </div>
+          <div class="ornate p-4 text-center">
+            <div class="font-mono text-3xl text-blood" id="time-counter">0.0ms</div>
+            <div class="font-serif text-xs tracking-widest text-gold uppercase mt-1">Resolve Time</div>
+          </div>
+          <div class="ornate p-4 text-center">
+            <div class="font-mono text-3xl text-gold-bright" id="dps-counter">—</div>
+            <div class="font-serif text-xs tracking-widest text-gold uppercase mt-1">Final Damage</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== SECTION 3: PATHFINDING ====== -->
+  <section class="relative py-20 px-6 bg-ink">
+    <div class="max-w-6xl mx-auto">
+      <div class="text-center mb-12 reveal">
+        <p class="font-mono text-xs tracking-[0.3em] text-gold mb-3">CHAPTER III</p>
+        <h2 class="font-display text-4xl md:text-5xl text-gold-bright mb-4">The Pathfinding Nightmare</h2>
+        <p class="font-serif text-lg max-w-2xl mx-auto opacity-80">Every zombie must find a path to you — every single
+          frame. Click the canvas to place obstacles.</p>
+      </div>
+
+      <div class="ornate p-6 md:p-10 reveal">
+        <div class="grid lg:grid-cols-3 gap-6">
+          <div class="lg:col-span-2">
+            <canvas id="pathfind-canvas"
+              class="w-full aspect-[7/5] border border-[rgba(201,169,97,0.3)] bg-[#0a0806] cursor-crosshair"></canvas>
+            <div class="flex gap-4 mt-3 flex-wrap">
+              <button class="btn-ornate text-xs" id="add-zombies">+ Summon 20 Zombies</button>
+              <button class="btn-ornate text-xs" id="clear-obs">Clear Walls</button>
+              <button class="btn-ornate text-xs" id="reset-sim">Reset</button>
+            </div>
+          </div>
+          <div class="space-y-3">
+            <div class="ornate p-4">
+              <div class="font-serif text-xs text-gold uppercase tracking-widest mb-1">Active Entities</div>
+              <div class="font-mono text-3xl text-gold-bright" id="entity-count">0</div>
+            </div>
+            <div class="ornate p-4">
+              <div class="font-serif text-xs text-gold uppercase tracking-widest mb-1">Path Recalcs / Frame</div>
+              <div class="font-mono text-3xl text-blood" id="path-recalcs">0</div>
+            </div>
+            <div class="ornate p-4">
+              <div class="font-serif text-xs text-gold uppercase tracking-widest mb-1">Obstacles</div>
+              <div class="font-mono text-3xl text-gold-bright" id="obs-count">0</div>
+            </div>
+            <div class="ornate p-4">
+              <div class="font-serif text-xs text-gold uppercase tracking-widest mb-1">CPU Core Load</div>
+              <div class="h-2 bg-[#1a1510] mt-2 overflow-hidden">
+                <div class="h-full bg-gradient-to-r from-yellow-600 to-red-600" id="path-cpu-bar" style="width:0%">
+                </div>
+              </div>
+              <div class="font-mono text-sm mt-1 text-right" id="path-cpu-pct">0%</div>
+            </div>
+            <p class="font-serif text-xs italic opacity-70 leading-relaxed">
+              Pathfinding is notoriously hard to multi-thread. One core bears most of the load while others sit idle.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== SECTION 4: CLIENT VS SERVER ====== -->
+  <section class="relative py-20 px-6">
+    <div class="max-w-6xl mx-auto">
+      <div class="text-center mb-12 reveal">
+        <p class="font-mono text-xs tracking-[0.3em] text-gold mb-3">CHAPTER IV</p>
+        <h2 class="font-display text-4xl md:text-5xl text-gold-bright mb-4">Client vs Server</h2>
+        <p class="font-serif text-lg max-w-2xl mx-auto opacity-80">Your client predicts. The server reconciles. When
+          they disagree — you get "rubberbanding."</p>
+      </div>
+
+      <div class="ornate p-6 md:p-10 reveal">
+        <div class="space-y-6">
+          <div>
+            <div class="flex items-center gap-3 mb-2">
+              <span class="font-serif text-gold uppercase tracking-widest text-sm">Your Client (Prediction)</span>
+              <span class="font-mono text-xs text-gold-bright" id="client-tick">tick 0</span>
+            </div>
+            <div class="timeline-track" id="client-track"></div>
+          </div>
+          <div>
+            <div class="flex items-center gap-3 mb-2">
+              <span class="font-serif text-blood uppercase tracking-widest text-sm">GGG Server (Authoritative)</span>
+              <span class="font-mono text-xs text-blood" id="server-tick">tick 0</span>
+            </div>
+            <div class="timeline-track" id="server-track"></div>
+          </div>
+        </div>
+
+        <div class="mt-8 flex flex-wrap gap-4 items-center justify-center">
+          <button class="btn-ornate" id="sim-btn">▶ Simulate Combat</button>
+          <div class="font-mono text-xs opacity-70">Latency: <span id="latency-display">50ms</span></div>
+          <input type="range" min="0" max="300" value="50" id="latency-slider" class="juice-slider"
+            style="width:200px" />
+        </div>
+
+        <div class="mt-6 ornate p-4">
+          <p class="font-mono text-xs leading-relaxed" id="sync-report" style="color: var(--parchment);">
+            Client and server in sync. Combat feels responsive.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== SECTION 5: POE1 vs POE2 ====== -->
+  <section class="relative py-20 px-6 bg-ink">
+    <div class="max-w-6xl mx-auto">
+      <div class="text-center mb-12 reveal">
+        <p class="font-mono text-xs tracking-[0.3em] text-gold mb-3">CHAPTER V</p>
+        <h2 class="font-display text-4xl md:text-5xl text-gold-bright mb-4">Jevons Paradox</h2>
+        <p class="font-serif text-lg max-w-2xl mx-auto opacity-80">A more efficient engine doesn't reduce CPU load — it
+          enables 10x more complexity.</p>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-6 reveal">
+        <div class="ornate p-6">
+          <h3 class="font-display text-2xl text-gold-bright mb-4">Path of Exile 1</h3>
+          <p class="font-mono text-xs text-blood mb-3">DirectX 11 · Launched 2013</p>
+          <ul class="space-y-2 font-serif text-sm" style="color: var(--parchment);">
+            <li class="flex gap-2"><span class="text-blood">◆</span>Largely single-threaded main loop</li>
+            <li class="flex gap-2"><span class="text-blood">◆</span>Draw call bottleneck on busy screens</li>
+            <li class="flex gap-2"><span class="text-blood">◆</span>Animation blending via state machines</li>
+            <li class="flex gap-2"><span class="text-blood">◆</span>Capped particle budgets</li>
+          </ul>
+          <div class="mt-4 pt-4 border-t border-[rgba(201,169,97,0.2)]">
+            <div class="flex justify-between font-mono text-xs mb-2">
+              <span>Main Thread</span><span class="text-blood">100%</span>
+            </div>
+            <div class="h-2 bg-[#1a1510]">
+              <div class="h-full bg-[#8b1818]" style="width:100%"></div>
+            </div>
+            <div class="flex justify-between font-mono text-xs mb-2 mt-3">
+              <span>Worker Threads</span><span class="text-gold">30%</span>
+            </div>
+            <div class="h-2 bg-[#1a1510]">
+              <div class="h-full bg-[#c9a961]" style="width:30%"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ornate p-6">
+          <h3 class="font-display text-2xl text-gold-bright mb-4">Path of Exile 2</h3>
+          <p class="font-mono text-xs text-gold-bright mb-3">Vulkan/DX12 · Launched 2024</p>
+          <ul class="space-y-2 font-serif text-sm" style="color: var(--parchment);">
+            <li class="flex gap-2"><span class="text-gold">◆</span>Heavily multi-threaded architecture</li>
+            <li class="flex gap-2"><span class="text-gold">◆</span>Motion matching animation (CPU heavy)</li>
+            <li class="flex gap-2"><span class="text-gold">◆</span>Physicalized destruction & cloth</li>
+            <li class="flex gap-2"><span class="text-gold">◆</span>Uncapped entity counts</li>
+          </ul>
+          <div class="mt-4 pt-4 border-t border-[rgba(201,169,97,0.2)]">
+            <div class="flex justify-between font-mono text-xs mb-2">
+              <span>All Threads</span><span class="text-blood">95%</span>
+            </div>
+            <div class="h-2 bg-[#1a1510]">
+              <div class="h-full bg-[#8b1818]" style="width:95%"></div>
+            </div>
+            <div class="flex justify-between font-mono text-xs mb-2 mt-3">
+              <span>Complexity Budget</span><span class="text-blood">10×</span>
+            </div>
+            <div class="h-2 bg-[#1a1510]">
+              <div class="h-full bg-gradient-to-r from-[#c9a961] to-[#8b1818]" style="width:100%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== SECTION 6: THE API ====== -->
+  <section class="relative py-20 px-6">
+    <div class="max-w-5xl mx-auto">
+      <div class="text-center mb-12 reveal">
+        <p class="font-mono text-xs tracking-[0.3em] text-gold mb-3">CHAPTER VI</p>
+        <h2 class="font-display text-4xl md:text-5xl text-gold-bright mb-4">Why The API Goes Silent</h2>
+        <p class="font-serif text-lg max-w-2xl mx-auto opacity-80">The public API logs items, stash, and markets — but
+          never logs a single combat tick.</p>
+      </div>
+
+      <div class="ornate p-6 md:p-10 reveal">
+        <div class="log-window" id="client-log"></div>
+        <div class="mt-4 grid md:grid-cols-3 gap-4 text-center">
+          <div class="ornate p-4">
+            <div class="font-mono text-2xl text-blood">I/O</div>
+            <div class="font-serif text-xs text-gold uppercase tracking-widest mt-1">Would crash servers</div>
+          </div>
+          <div class="ornate p-4">
+            <div class="font-mono text-2xl text-blood">Anti-Cheat</div>
+            <div class="font-serif text-xs text-gold uppercase tracking-widest mt-1">Keeps bots blind</div>
+          </div>
+          <div class="ornate p-4">
+            <div class="font-mono text-2xl text-blood">Ephemeral</div>
+            <div class="font-serif text-xs text-gold uppercase tracking-widest mt-1">In-memory only</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== FOOTER ====== -->
+  <footer class="relative py-16 px-6 bg-[#050403] border-t border-[rgba(201,169,97,0.2)]">
+    <div class="max-w-4xl mx-auto text-center">
+      <div class="divider" style="margin: 0 0 2rem 0;">
+        <div class="divider-diamond"></div>
+      </div>
+      <h3 class="font-display text-2xl text-gold-bright mb-4">Exile, Explained.</h3>
+      <p class="font-serif text-sm opacity-70 mb-6" style="color: var(--parchment);">
+        Your CPU isn't broken. Path of Exile is just asking it to solve thousands of nested algebraic equations, A*
+        pathfinding trees, and audio mixing matrices — sixty times per second — while also rendering the explosion.
+      </p>
+      <p class="font-mono text-xs tracking-widest text-gold opacity-60">THE ENGINE OF EXILE · A FAN-MADE TECHNICAL
+        EXPLORER</p>
+      <p class="font-mono text-xs mt-2 opacity-40">Not affiliated with Grinding Gear Games. Path of Exile © GGG.</p>
+    </div>
+  </footer>
+
+  <script>
+    /* ================= EMBER PARTICLES ================= */
+    (function initEmbers() {
+      const container = document.getElementById('ember-container');
+      for (let i = 0; i < 40; i++) {
+        const e = document.createElement('div');
+        e.className = 'ember';
+        e.style.left = Math.random() * 100 + '%';
+        e.style.bottom = '-10px';
+        e.style.animationDuration = (8 + Math.random() * 12) + 's';
+        e.style.animationDelay = (Math.random() * 10) + 's';
+        e.style.opacity = 0.3 + Math.random() * 0.7;
+        container.appendChild(e);
+      }
+    })();
+
+    /* ================= MODE TOGGLE ================= */
+    const toggleBtns = document.querySelectorAll('#mode-toggle button');
+    const sliderBg = document.getElementById('toggle-slider');
+    toggleBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        toggleBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const mode = btn.dataset.mode;
+        if (mode === 'nerd') {
+          document.body.classList.add('nerd-mode');
+          sliderBg.style.transform = 'translateX(100%)';
+        } else {
+          document.body.classList.remove('nerd-mode');
+          sliderBg.style.transform = 'translateX(0)';
+        }
+      });
+    });
+
+    /* ================= SCROLL REVEAL ================= */
+    const reveals = document.querySelectorAll('.reveal');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+    }, { threshold: 0.1 });
+    reveals.forEach(r => observer.observe(r));
+
+    /* ================= JUICE SLIDER + CPU CORES ================= */
+    const coresContainer = document.getElementById('cpu-cores');
+    const NUM_CORES = 8;
+    for (let i = 0; i < NUM_CORES; i++) {
+      const core = document.createElement('div');
+      core.className = 'cpu-core aspect-square flex items-end justify-center';
+      core.innerHTML = `
+    <div class="cpu-core-fill" id="core-fill-${i}" style="height:0%"></div>
+    <div class="relative z-10 font-mono text-xs text-gold mb-1">C${i}</div>
+  `;
+      coresContainer.appendChild(core);
+    }
+
+    const juiceSlider = document.getElementById('juice-slider');
+    const monsterCount = document.getElementById('monster-count');
+    const poe2Toggle = document.getElementById('poe2-toggle');
+    const engineLabel = document.getElementById('engine-label');
+    const coreStatus = document.getElementById('core-status');
+    const bottleneckReport = document.getElementById('bottleneck-report');
+    const totalLoad = document.getElementById('total-load');
+
+    function updateJuice() {
+      const n = parseInt(juiceSlider.value);
+      const isPoe2 = poe2Toggle.checked;
+      monsterCount.textContent = n;
+      engineLabel.textContent = isPoe2 ? 'Engine (PoE 2)' : 'Engine (PoE 1)';
+
+      // Scaling formulas — approximate feel
+      const combat = Math.min(100, 8 + (n / 500) * 55);
+      const path = Math.min(100, 4 + Math.pow(n / 100, 1.6) * 30);
+      const draw = Math.min(100, 10 + Math.pow(n / 200, 1.8) * 60);
+      const audio = Math.min(100, 4 + (n / 500) * 40);
+
+      document.getElementById('stat-combat').textContent = Math.round(combat) + '%';
+      document.getElementById('stat-path').textContent = Math.round(path) + '%';
+      document.getElementById('stat-draw').textContent = Math.round(draw) + '%';
+      document.getElementById('stat-audio').textContent = Math.round(audio) + '%';
+      document.getElementById('bar-combat').style.width = combat + '%';
+      document.getElementById('bar-path').style.width = path + '%';
+      document.getElementById('bar-draw').style.width = draw + '%';
+      document.getElementById('bar-audio').style.width = audio + '%';
+
+      // CPU core distribution
+      const loads = new Array(NUM_CORES).fill(0);
+      if (!isPoe2) {
+        // PoE 1: mostly single threaded, main thread chokes
+        loads[0] = Math.min(100, combat * 1.2 + path * 0.8 + draw * 0.3);
+        loads[1] = Math.min(100, draw * 0.7);
+        loads[2] = Math.min(100, audio * 0.9);
+        for (let i = 3; i < NUM_CORES; i++) loads[i] = 5 + Math.random() * 15;
+      } else {
+        // PoE 2: multi-threaded, but everything gets pushed high
+        const base = (combat + path + draw + audio) / 3;
+        for (let i = 0; i < NUM_CORES; i++) {
+          loads[i] = Math.min(100, base * (0.7 + Math.random() * 0.5));
+        }
+        loads[0] = Math.min(100, loads[0] * 1.15); // still slightly higher
+      }
+
+      const cores = document.querySelectorAll('.cpu-core');
+      loads.forEach((l, i) => {
+        const fill = document.getElementById(`core-fill-${i}`);
+        fill.style.height = l + '%';
+        if (l >= 95) cores[i].classList.add('choked');
+        else cores[i].classList.remove('choked');
+      });
+
+      const avg = loads.reduce((a, b) => a + b, 0) / loads.length;
+      const max = Math.max(...loads);
+      totalLoad.textContent = Math.round(avg) + '%';
+      if (avg > 90) { totalLoad.classList.add('glitch'); totalLoad.classList.add('text-blood'); }
+      else { totalLoad.classList.remove('glitch', 'text-blood'); }
+
+      // Status text
+      if (!isPoe2) {
+        if (n > 250) coreStatus.textContent = '🔥 MAIN THREAD CHOKED. Other cores idle. Draw calls bottleneck.';
+        else if (n > 100) coreStatus.textContent = '⚠ Main thread under heavy load. Pathfinding spiking.';
+        else coreStatus.textContent = 'Single thread handling most workload...';
+
+        if (n > 300) bottleneckReport.innerHTML = '<span class="text-blood">CRITICAL:</span> DirectX 11 draw call limit hit. CPU cannot dispatch enough work to GPU. Pathfinding queue backed up. Audio buffer underruns likely.';
+        else if (n > 150) bottleneckReport.innerHTML = '<span class="text-blood">WARNING:</span> Main thread saturated. Modifier graph traversal + A* pathfinding competing for same core. Expect frame drops on big packs.';
+        else bottleneckReport.textContent = 'System nominal. Combat math is the primary consumer. Other cores largely idle.';
+      } else {
+        coreStatus.textContent = avg > 85 ? '🔥 All cores saturated. Complexity budget exceeded.' : 'Multi-threaded distribution active.';
+        if (n > 300) bottleneckReport.innerHTML = '<span class="text-blood">CRITICAL:</span> Motion matching + physicalized destruction + cloth sim consuming all threads. Jevons Paradox in full effect — engine is efficient, but workload scaled to match.';
+        else if (n > 150) bottleneckReport.innerHTML = '<span class="text-gold">NOTE:</span> Work evenly distributed. Total load still high due to simulation complexity (advanced AI, destruction physics).';
+        else bottleneckReport.textContent = 'Multi-threaded distribution functioning. Modern engine utilizing all available cores.';
+      }
+    }
+
+    juiceSlider.addEventListener('input', updateJuice);
+    poe2Toggle.addEventListener('change', updateJuice);
+    updateJuice();
+
+    /* ================= DAMAGE PIPELINE ================= */
+    const pipelineSteps = [
+      { name: 'Cast Time', calc: 3, desc: 'Check cast speed, queue ability' },
+      { name: 'Hit Roll', calc: 12, desc: 'Accuracy vs evasion, entropy system' },
+      { name: 'Crit Check', calc: 8, desc: 'Crit chance, lucky rolls, suppression' },
+      { name: 'Conversion', calc: 24, desc: 'Phys → Fire → Chaos chains' },
+      { name: 'Penetration', calc: 15, desc: 'Res pen, exposure, curses' },
+      { name: 'Mitigation', calc: 18, desc: 'Armor, res, block, ward' },
+      { name: 'Ailments', calc: 32, desc: 'Ignite, poison, bleed chances' },
+      { name: 'On-Hit', calc: 45, desc: 'Life gain, power charges,procs' }
+    ];
+
+    const pipelineNodes = document.getElementById('pipeline-nodes');
+    pipelineSteps.forEach((step, i) => {
+      const node = document.createElement('div');
+      node.className = 'pipe-node p-3 text-center';
+      node.innerHTML = `
+    <div class="font-serif text-xs text-gold uppercase tracking-wider mb-1" style="min-height:2.5em">${step.name}</div>
+    <div class="font-mono text-lg text-gold-bright" id="node-calc-${i}">—</div>
+    <div class="font-mono text-[9px] opacity-60 mt-1" style="min-height:2em">${step.desc}</div>
+  `;
+      pipelineNodes.appendChild(node);
+    });
+
+    const castBtn = document.getElementById('cast-btn');
+    const calcCounter = document.getElementById('calc-counter');
+    const timeCounter = document.getElementById('time-counter');
+    const dpsCounter = document.getElementById('dps-counter');
+    let casting = false;
+
+    function animateValue(el, target, duration, suffix = '') {
+      const start = performance.now();
+      const initial = parseInt(el.textContent) || 0;
+      function tick(now) {
+        const p = Math.min((now - start) / duration, 1);
+        el.textContent = Math.round(initial + (target - initial) * p) + suffix;
+        if (p < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
+
+    castBtn.addEventListener('click', async () => {
+      if (casting) return;
+      casting = true;
+      castBtn.disabled = true;
+      castBtn.style.opacity = '0.5';
+
+      // Reset
+      document.querySelectorAll('.pipe-node').forEach(n => n.classList.remove('active'));
+      calcCounter.textContent = '0';
+      timeCounter.textContent = '0.0ms';
+      dpsCounter.textContent = '—';
+
+      let totalCalc = 0;
+      const startTime = performance.now();
+
+      for (let i = 0; i < pipelineSteps.length; i++) {
+        const step = pipelineSteps[i];
+        const node = document.querySelectorAll('.pipe-node')[i];
+        node.classList.add('active');
+
+        // Animate counter within node
+        const nodeCalc = document.getElementById(`node-calc-${i}`);
+        let c = 0;
+        const interval = setInterval(() => {
+          c += Math.ceil(step.calc / 8);
+          if (c >= step.calc) { c = step.calc; clearInterval(interval); }
+          nodeCalc.textContent = c;
+        }, 30);
+
+        totalCalc += step.calc;
+        animateValue(calcCounter, totalCalc, 200);
+
+        await new Promise(r => setTimeout(r, 220));
+        node.classList.remove('active');
+      }
+
+      const elapsed = performance.now() - startTime;
+      timeCounter.textContent = elapsed.toFixed(1) + 'ms';
+
+      // Final damage
+      const baseDamage = 4821;
+      const critMulti = Math.random() > 0.6 ? 3.5 : 1;
+      const finalDmg = Math.round(baseDamage * critMulti * (0.8 + Math.random() * 0.4));
+      dpsCounter.textContent = finalDmg.toLocaleString();
+      dpsCounter.classList.add('pulse-gold');
+
+      setTimeout(() => {
+        dpsCounter.classList.remove('pulse-gold');
+        casting = false;
+        castBtn.disabled = false;
+        castBtn.style.opacity = '1';
+      }, 1500);
+    });
+
+    /* ================= PATHFINDING SIMULATOR ================= */
+    const canvas = document.getElementById('pathfind-canvas');
+    const ctx = canvas.getContext('2d');
+    let CW, CH;
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      CW = rect.width; CH = rect.height;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    let player = { x: 0, y: 0, vx: 0, vy: 0, targetX: 0, targetY: 0 };
+    let zombies = [];
+    let obstacles = [];
+    let pathRecalcs = 0;
+
+    function initPlayer() {
+      player.x = CW / 2;
+      player.y = CH / 2;
+      player.targetX = CW / 2;
+      player.targetY = CH / 2;
+    }
+    initPlayer();
+
+    function spawnZombie() {
+      const side = Math.floor(Math.random() * 4);
+      let x, y;
+      if (side === 0) { x = Math.random() * CW; y = 0; }
+      else if (side === 1) { x = CW; y = Math.random() * CH; }
+      else if (side === 2) { x = Math.random() * CW; y = CH; }
+      else { x = 0; y = Math.random() * CH; }
+      zombies.push({ x, y, path: [], speed: 0.5 + Math.random() * 0.4, wobble: Math.random() * Math.PI * 2 });
+    }
+
+    for (let i = 0; i < 15; i++) spawnZombie();
+
+    canvas.addEventListener('click', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      // Don't place on player
+      const dx = x - player.x, dy = y - player.y;
+      if (Math.sqrt(dx * dx + dy * dy) < 30) return;
+      obstacles.push({ x, y, r: 18 + Math.random() * 12 });
+      document.getElementById('obs-count').textContent = obstacles.length;
+    });
+
+    document.getElementById('add-zombies').addEventListener('click', () => {
+      for (let i = 0; i < 20; i++) spawnZombie();
+    });
+    document.getElementById('clear-obs').addEventListener('click', () => {
+      obstacles = [];
+      document.getElementById('obs-count').textContent = 0;
+    });
+    document.getElementById('reset-sim').addEventListener('click', () => {
+      zombies = [];
+      obstacles = [];
+      initPlayer();
+      for (let i = 0; i < 15; i++) spawnZombie();
+      document.getElementById('obs-count').textContent = 0;
+    });
+
+    // Simple line-of-sight check
+    function blocked(x1, y1, x2, y2) {
+      const steps = 12;
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        const x = x1 + (x2 - x1) * t;
+        const y = y1 + (y2 - y1) * t;
+        for (const o of obstacles) {
+          const dx = x - o.x, dy = y - o.y;
+          if (dx * dx + dy * dy < o.r * o.r) return true;
+        }
+      }
+      return false;
+    }
+
+    function findWaypoint(z) {
+      // Simple steering: if blocked, try side waypoints
+      if (!blocked(z.x, z.y, player.x, player.y)) return { x: player.x, y: player.y };
+      const ang = Math.atan2(player.y - z.y, player.x - z.x);
+      const dist = Math.sqrt((player.x - z.x) ** 2 + (player.y - z.y) ** 2);
+      // Try perpendicular offsets
+      for (let offset of [0.8, -0.8, 1.4, -1.4]) {
+        const wx = z.x + Math.cos(ang + offset) * dist * 0.4;
+        const wy = z.y + Math.sin(ang + offset) * dist * 0.4;
+        if (!blocked(z.x, z.y, wx, wy) && !blocked(wx, wy, player.x, player.y)) {
+          return { x: wx, y: wy };
+        }
+      }
+      return { x: player.x, y: player.y };
+    }
+
+    let frameCount = 0;
+    function pathLoop() {
+      frameCount++;
+      ctx.clearRect(0, 0, CW, CH);
+
+      // Grid bg
+      ctx.strokeStyle = 'rgba(201,169,97,0.05)';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < CW; x += 30) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, CH); ctx.stroke();
+      }
+      for (let y = 0; y < CH; y += 30) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(CW, y); ctx.stroke();
+      }
+
+      // Player auto-wander
+      if (frameCount % 120 === 0 || Math.random() < 0.005) {
+        player.targetX = 60 + Math.random() * (CW - 120);
+        player.targetY = 60 + Math.random() * (CH - 120);
+      }
+      const pdx = player.targetX - player.x, pdy = player.targetY - player.y;
+      const pd = Math.sqrt(pdx * pdx + pdy * pdy);
+      if (pd > 2) {
+        player.x += (pdx / pd) * 1.2;
+        player.y += (pdy / pd) * 1.2;
+      }
+
+      // Draw obstacles
+      obstacles.forEach(o => {
+        ctx.fillStyle = 'rgba(42,35,28,0.9)';
+        ctx.strokeStyle = 'rgba(201,169,97,0.5)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        // X mark
+        ctx.strokeStyle = 'rgba(139,24,24,0.7)';
+        ctx.beginPath();
+        ctx.moveTo(o.x - o.r * 0.4, o.y - o.r * 0.4); ctx.lineTo(o.x + o.r * 0.4, o.y + o.r * 0.4);
+        ctx.moveTo(o.x + o.r * 0.4, o.y - o.r * 0.4); ctx.lineTo(o.x - o.r * 0.4, o.y + o.r * 0.4);
+        ctx.stroke();
+      });
+
+      // Update zombies
+      let recalcThisFrame = 0;
+      zombies.forEach(z => {
+        z.wobble += 0.05;
+        // Recalc path every few frames per zombie (simulates tick)
+        if (frameCount % 6 === 0 || z.path.length === 0) {
+          z.path = [findWaypoint(z), { x: player.x, y: player.y }];
+          recalcThisFrame++;
+        }
+
+        // Move toward waypoint
+        const wp = z.path[0];
+        if (wp) {
+          const zx = wp.x - z.x, zy = wp.y - z.y;
+          const zd = Math.sqrt(zx * zx + zy * zy);
+          if (zd > 2) {
+            z.x += (zx / zd) * z.speed + Math.cos(z.wobble) * 0.1;
+            z.y += (zy / zd) * z.speed + Math.sin(z.wobble) * 0.1;
+          }
+        }
+
+        // Draw path line
+        ctx.strokeStyle = 'rgba(196,43,43,0.25)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(z.x, z.y);
+        z.path.forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.stroke();
+
+        // Draw zombie
+        ctx.fillStyle = '#3a5a3a';
+        ctx.strokeStyle = '#1a2a1a';
+        ctx.beginPath(); ctx.arc(z.x, z.y, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      });
+
+      // Draw player
+      ctx.fillStyle = '#c9a961';
+      ctx.strokeStyle = '#e8c878';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(player.x, player.y, 10, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      // Glow
+      const grad = ctx.createRadialGradient(player.x, player.y, 0, player.x, player.y, 30);
+      grad.addColorStop(0, 'rgba(232,200,120,0.3)');
+      grad.addColorStop(1, 'rgba(232,200,120,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(player.x, player.y, 30, 0, Math.PI * 2); ctx.fill();
+
+      // Update stats (throttled)
+      if (frameCount % 10 === 0) {
+        pathRecalcs = recalcThisFrame * 10; // estimate per second
+        const avgRecalcs = Math.round(zombies.length * 10); // each recalcs ~10/s
+        document.getElementById('entity-count').textContent = zombies.length;
+        document.getElementById('path-recalcs').textContent = avgRecalcs;
+        const cpuLoad = Math.min(100, Math.round((zombies.length * 0.4) + (obstacles.length * 1.5)));
+        document.getElementById('path-cpu-bar').style.width = cpuLoad + '%';
+        document.getElementById('path-cpu-pct').textContent = cpuLoad + '%';
+      }
+
+      requestAnimationFrame(pathLoop);
+    }
+    pathLoop();
+
+    /* ================= CLIENT VS SERVER TIMELINE ================= */
+    const clientTrack = document.getElementById('client-track');
+    const serverTrack = document.getElementById('server-track');
+    const latencySlider = document.getElementById('latency-slider');
+    const latencyDisplay = document.getElementById('latency-display');
+    const clientTickEl = document.getElementById('client-tick');
+    const serverTickEl = document.getElementById('server-tick');
+    const syncReport = document.getElementById('sync-report');
+    const simBtn = document.getElementById('sim-btn');
+
+    latencySlider.addEventListener('input', () => {
+      latencyDisplay.textContent = latencySlider.value + 'ms';
+    });
+
+    let simRunning = false;
+    simBtn.addEventListener('click', async () => {
+      if (simRunning) return;
+      simRunning = true;
+      simBtn.disabled = true;
+
+      clientTrack.innerHTML = '';
+      serverTrack.innerHTML = '';
+
+      const latency = parseInt(latencySlider.value);
+      const events = [
+        { t: 0, label: 'Player casts Fireball', color: '#c9a961' },
+        { t: 200, label: 'Hit registered', color: '#e8c878' },
+        { t: 400, label: 'Damage 4,821', color: '#c42b2b' },
+        { t: 600, label: 'Enemy dies', color: '#8b1818' },
+        { t: 900, label: 'Loot drop', color: '#c9a961' },
+        { t: 1200, label: 'XP gained', color: '#e8c878' }
+      ];
+
+      const maxT = 1800;
+
+      // Client events (immediate)
+      events.forEach(ev => {
+        const el = document.createElement('div');
+        el.className = 'timeline-event';
+        el.style.left = (ev.t / maxT * 100) + '%';
+        el.style.background = ev.color;
+        el.style.color = '#0a0806';
+        el.style.opacity = '0';
+        el.style.transition = 'opacity 0.3s';
+        el.textContent = ev.label;
+        clientTrack.appendChild(el);
+        setTimeout(() => { el.style.opacity = '1'; }, ev.t);
+      });
+
+      // Server events (delayed by latency)
+      events.forEach(ev => {
+        const el = document.createElement('div');
+        el.className = 'timeline-event';
+        const serverTime = ev.t + latency;
+        el.style.left = (serverTime / maxT * 100) + '%';
+        el.style.background = ev.color;
+        el.style.color = '#0a0806';
+        el.style.opacity = '0';
+        el.style.transition = 'opacity 0.3s';
+        el.textContent = ev.label;
+        serverTrack.appendChild(el);
+        setTimeout(() => { el.style.opacity = '1'; }, serverTime);
+      });
+
+      // Tick counters
+      let tick = 0;
+      const tickInterval = setInterval(() => {
+        tick++;
+        clientTickEl.textContent = 'tick ' + tick;
+        serverTickEl.textContent = 'tick ' + Math.max(0, tick - Math.round(latency / 16));
+      }, 16);
+
+      // Sync report update
+      if (latency < 60) {
+        syncReport.innerHTML = '<span class="text-gold">● SYNCHRONIZED:</span> Client prediction matches server reconciliation. Combat feels instant.';
+      } else if (latency < 150) {
+        syncReport.innerHTML = '<span class="text-gold">● MINOR DESYNC:</span> ~' + latency + 'ms delay. Client shows damage before server confirms. Acceptable for most content.';
+      } else {
+        syncReport.innerHTML = '<span class="text-blood">● SEVERE DESYNC:</span> ' + latency + 'ms delay. Server CPU saturated — cannot resolve combat fast enough. "Rubberbanding" and ghost hits likely. The server IS the bottleneck now.';
+      }
+
+      setTimeout(() => {
+        clearInterval(tickInterval);
+        simRunning = false;
+        simBtn.disabled = false;
+      }, maxT + 500);
+    });
+
+    // Auto-run once
+    setTimeout(() => simBtn.click(), 1500);
+
+    /* ================= CLIENT LOG SIMULATION ================= */
+    const logWindow = document.getElementById('client-log');
+    const logEntries = [
+      { type: 'info', msg: '[CLIENT] Connecting to instance server 198.51.100.24:6112' },
+      { type: 'ok', msg: '[API] Character data synced: "ExileSlayer99" (Level 98 Slayer)' },
+      { type: 'ok', msg: '[API] Stash tabs loaded: 47 tabs, 12,847 items indexed' },
+      { type: 'info', msg: '[CLIENT] Entering zone: "Citadel, Map Tier 16"' },
+      { type: 'ok', msg: '[API] Market listings refreshed: 3,421 active auctions' },
+      { type: 'warn', msg: '[COMBAT] >>> 847 monsters spawned — events NOT logged to client.txt <<<' },
+      { type: 'warn', msg: '[COMBAT] >>> Fireball cast — tick data kept in-memory only <<<' },
+      { type: 'warn', msg: '[COMBAT] >>> 12,432 damage rolls resolved — API endpoint silent <<<' },
+      { type: 'warn', msg: '[COMBAT] >>> 847 pathfinding recalcs/frame — not exposed <<<' },
+      { type: 'info', msg: '[CLIENT] Item dropped: "Mageblood, Heavy Belt" — logging to client.txt' },
+      { type: 'ok', msg: '[API] Item event pushed: rarity=UNIQUE, ilvl=86' },
+      { type: 'info', msg: '[CLIENT] Zone complete. Instance despawn scheduled in 480s' },
+    ];
+
+    let logIndex = 0;
+    function writeLog() {
+      if (logIndex >= logEntries.length) {
+        logIndex = 0;
+        logWindow.innerHTML = '';
+      }
+      const entry = logEntries[logIndex++];
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      const color = entry.type === 'ok' ? '#4ade80' : entry.type === 'warn' ? '#c42b2b' : '#c9a961';
+      line.innerHTML = `<span style="color:${color}">${entry.msg}</span>`;
+      logWindow.appendChild(line);
+      logWindow.scrollTop = logWindow.scrollHeight;
+    }
+
+    // Start log when in view
+    const logObserver = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setInterval(writeLog, 700);
+        logObserver.disconnect();
+      }
+    }, { threshold: 0.3 });
+    logObserver.observe(logWindow);
+
+    /* ================= SMOOTH SCROLL ================= */
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+      a.addEventListener('click', e => {
+        const target = document.querySelector(a.getAttribute('href'));
+        if (target) {
+          e.preventDefault();
+          target.scrollIntoView({ behavior: 'smooth' });
+        }
+      });
+    });
+  </script>
+</body>
+
+</html>
